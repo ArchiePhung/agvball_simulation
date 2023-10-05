@@ -21,7 +21,7 @@ from tf.transformations import euler_from_quaternion, quaternion_from_euler
 from sti_msgs.msg import *
 from agvball_simulation.msg import * 
 from nav_msgs.msg import Path
-import sympy as sy
+import numpy as np
 from scipy.integrate import quad
 
 from matplotlib import pyplot as plt
@@ -137,7 +137,8 @@ class goalControl():
 
         self.distance_goal = 0.0
 
-        self.tol_simple = 1.0      # do chinh xac theo truc x,y
+        # self.tol_simple = 1.0      # do chinh xac theo truc x,y
+        self.tol_simple = rospy.get_param('~tol_simple')
         self.tol_target = 0.02
         self.ss_luivsnextGoal = 0.25
 
@@ -224,7 +225,7 @@ class goalControl():
         # for case distance range up is fixed
         self.Padlength = 0
         self.time_up = 0
-        # self.delta_up = 0.01
+        # self.delta_up = 0.2
         self.delta_up = rospy.get_param('~curve_deltaup')
         self.avg_delta_up = self.delta_up / 2
         self.first_delta = 0
@@ -266,6 +267,8 @@ class goalControl():
         (self.fig, self.subplot) = plt.subplots(2,2)
         self.i = 0.05
 
+        # for vị trí gốc đường cong ko phải là vị trí bắt đầu của AGV. 
+        self.is_agv_onCurve = 0
 #-------------------------------------------------------------------------------------------------
     def fnShutDown(self):
         # rospy.loginfo("Shutting down. cmd_vel will be 0")
@@ -379,11 +382,12 @@ class goalControl():
             self.path_plan.header.frame_id = self.origin_frame
             self.path_plan.header.stamp = rospy.Time.now()
             self.path_plan.poses.append(self.point_path(self.agv_start_pose_x, self.agv_start_pose_y))
+            self.path_plan.poses.append(self.point_path(self.req_move.list_x[0], self.req_move.list_y[0]))
 
             for i in range(self.nb_point_path):
-                x, y = self.getPoint_curveFormula(self.path_t, self.agv_start_pose_x,self.agv_start_pose_y, \
-                                                                                            self.req_move.list_x[0], self.req_move.list_y[0],\
-                                                                                                self.req_move.list_x[1], self.req_move.list_y[1])
+                x, y = self.getPoint_curveFormula(self.path_t, self.req_move.list_x[0], self.req_move.list_x[0], \
+                                                                                            self.req_move.list_x[1], self.req_move.list_y[1],\
+                                                                                                self.req_move.list_x[2], self.req_move.list_y[2])
                 self.point_path_x.append(x)
                 self.point_path_y.append(y)               
 
@@ -703,12 +707,40 @@ class goalControl():
 
                 if c_k == 2:
                     rospy.loginfo("Completed wakeup ('_')")
+                    self.process = 2
+                                               
+            elif self.process == 2:                       # kiểm tra lộ trình di chuyển 
+                if (self.poseRbMa.position.x != self.req_move.list_x[0] or self.poseRbMa.position.y != self.req_move.list_y[0]):
+                    self.point_goal_start_x = self.poseRbMa.position.x
+                    self.point_goal_start_y = self.poseRbMa.position.y
+                    self.cur_goal_x = self.req_move.list_x[self.path_index]
+                    self.cur_goal_y = self.req_move.list_y[self.path_index]
+                    self.type_run = self.move_straight
+                    self.process = 3
+                    self.is_need_turn_step1 = 1
+                else:
                     self.process = 10
 
+                # if self.path_index == 0:
+                #     self.point_goal_start_x = self.poseRbMa.position.x
+                #     self.point_goal_start_y = self.poseRbMa.position.y
+                #     self.cur_goal_x = self.req_move.list_x[self.path_index]
+                #     self.cur_goal_y = self.req_move.list_y[self.path_index]
+                # else:
+                #     self.point_goal_start_x = self.cur_goal_x
+                #     self.point_goal_start_y = self.cur_goal_y
+                #     self.cur_goal_x = self.req_move.list_x[self.path_index]
+                #     self.cur_goal_y = self.req_move.list_y[self.path_index]
+
+                    # print("Tao đã vô đây rồi nè !")
+                # self.is_need_turn_step1 = 1
+                # self.process = 3    
+
             elif self.process == 10:
-                theta = self.getAngle_2nearbyPad(self.poseRbMa.position.x, self.poseRbMa.position.y,\
-                                                    self.req_move.list_x[self.path_index], self.req_move.list_y[self.path_index], \
-                                                        self.req_move.list_x[self.path_index+1], self.req_move.list_y[self.path_index+1])
+
+                theta = self.getAngle_2nearbyPad(self.req_move.list_x[self.path_index], self.req_move.list_x[self.path_index],\
+                                                    self.req_move.list_x[self.path_index+1], self.req_move.list_y[self.path_index+1], \
+                                                        self.req_move.list_x[self.path_index+2], self.req_move.list_y[self.path_index+2])
                 theta = theta*180/PI
                 print(theta)
                 
@@ -722,40 +754,22 @@ class goalControl():
                     self.is_need_turn_step1 = 1
                     self.point_goal_start_x = self.poseRbMa.position.x
                     self.point_goal_start_y = self.poseRbMa.position.y
-                    self.cur_goal_x = self.req_move.list_x[self.path_index]
-                    self.cur_goal_y = self.req_move.list_y[self.path_index]
+                    self.cur_goal_x = self.req_move.list_x[self.path_index + 1]
+                    self.cur_goal_y = self.req_move.list_y[self.path_index + 1]
 
                     self.vel_x = self.vel_x3
 
                     self.first_target_x, self.first_target_y = self.getPoint_curveFormula(self.first_delta, self.point_goal_start_x,self.point_goal_start_y, \
-                                                                                                self.req_move.list_x[0], self.req_move.list_y[0],\
-                                                                                                    self.req_move.list_x[1], self.req_move.list_y[1])
+                                                                                                self.req_move.list_x[1], self.req_move.list_y[1],\
+                                                                                                    self.req_move.list_x[2], self.req_move.list_y[2])
                     self.second_target_x, self.second_target_y = self.getPoint_curveFormula(self.second_delta, self.point_goal_start_x,self.point_goal_start_y, \
-                                                                                                self.req_move.list_x[0], self.req_move.list_y[0],\
-                                                                                                    self.req_move.list_x[1], self.req_move.list_y[1])
+                                                                                                self.req_move.list_x[1], self.req_move.list_y[1],\
+                                                                                                    self.req_move.list_x[2], self.req_move.list_y[2])
                     self.d_org = self.calculate_distance(self.first_target_x, self.first_target_y, self.second_target_x, self.second_target_y)
                     print(self.d_org)
                     self.d_now = self.calculate_distance(self.poseRbMa.position.x, self.poseRbMa.position.y, self.second_target_x, self.second_target_y)
                     print(self.d_now)
-                                               
-            elif self.process == 2:                       # kiểm tra lộ trình di chuyển 
 
-                if self.path_index == 0:
-                    self.point_goal_start_x = self.poseRbMa.position.x
-                    self.point_goal_start_y = self.poseRbMa.position.y
-                    self.cur_goal_x = self.req_move.list_x[self.path_index]
-                    self.cur_goal_y = self.req_move.list_y[self.path_index]
-                else:
-                    self.point_goal_start_x = self.cur_goal_x
-                    self.point_goal_start_y = self.cur_goal_y
-                    self.cur_goal_x = self.req_move.list_x[self.path_index]
-                    self.cur_goal_y = self.req_move.list_y[self.path_index]
-
-                    # print("Tao đã vô đây rồi nè !")
-
-                self.is_need_turn_step1 = 1
-                self.process = 3    
-            
             # -- Quay AGV về đường mục tiêu -- 
             elif self.process == 3: 
                 if self.is_need_turn_step1 == 1:
@@ -825,26 +839,35 @@ class goalControl():
 
                 else:
                     v_x = self.min_vel_x_gh + ((self.angle_find_vel - fabs(self.theta))/self.angle_find_vel)*(self.vel_x - self.min_vel_x_gh)
-                
-                if self.path_index < self.len_tranjectory - 1:
-                    if self.distance_goal <= self.tol_simple or self.kc_con_lai <= self.tol_simple:    # kiểm tra AGV gần tới điểm cuối và chuyển lộ trình tiếp theo 
-                        self.stop()
-                        self.process = 2                    # chuyển về process 2 để kiểm tra lộ trình cần di chuyển.
-                        self.path_index += 1
-                        del self.path_plan.poses[0]                     # xóa lộ trình cũ đi 
-                        self.pub_path_global.publish(self.path_plan)
-                    else:
-                        self.v_th_send = self.control_navigation(self.x_td_goal, self.y_td_goal, v_x) 
 
-                elif self.path_index == self.len_tranjectory - 1:
-                    if self.distance_goal <= self.tol_target or self.kc_con_lai <= self.tol_target:    # kiểm tra AGV gần tới điểm cuối và chuyển lộ trình tiếp theo 
-                        self.stop()
-                        self.process = 50                    # chuyển về process 2 để kiểm tra lộ trình cần di chuyển.
-                        self.path_index = 0
-                        del self.path_plan.poses[0]                     # xóa lộ trình cũ đi 
-                        self.pub_path_global.publish(self.path_plan)
-                    else:
-                        self.v_th_send = self.control_navigation(self.x_td_goal, self.y_td_goal, v_x)    
+                if self.distance_goal <= self.tol_simple or self.kc_con_lai <= self.tol_simple:    # kiểm tra AGV gần tới điểm cuối và chuyển lộ trình tiếp theo 
+                    self.stop()
+                    self.process = 10                    # chuyển về process 2 để kiểm tra lộ trình cần di chuyển.
+                    # self.path_index += 1
+                    # del self.path_plan.poses[0]                     # xóa lộ trình cũ đi 
+                    # self.pub_path_global.publish(self.path_plan)
+                else:
+                    self.v_th_send = self.control_navigation(self.x_td_goal, self.y_td_goal, v_x)
+                #            
+                # if self.path_index < self.len_tranjectory - 1:
+                #     if self.distance_goal <= self.tol_simple or self.kc_con_lai <= self.tol_simple:    # kiểm tra AGV gần tới điểm cuối và chuyển lộ trình tiếp theo 
+                #         self.stop()
+                #         self.process = 2                    # chuyển về process 2 để kiểm tra lộ trình cần di chuyển.
+                #         # self.path_index += 1
+                #         del self.path_plan.poses[0]                     # xóa lộ trình cũ đi 
+                #         self.pub_path_global.publish(self.path_plan)
+                #     else:
+                #         self.v_th_send = self.control_navigation(self.x_td_goal, self.y_td_goal, v_x) 
+
+                # elif self.path_index == self.len_tranjectory - 1:
+                #     if self.distance_goal <= self.tol_target or self.kc_con_lai <= self.tol_target:    # agv chay het diem
+                #         self.stop()
+                #         self.process = 50                    # 
+                #         self.path_index = 0
+                #         del self.path_plan.poses[0]                     
+                #         self.pub_path_global.publish(self.path_plan)
+                #     else:
+                #         self.v_th_send = self.control_navigation(self.x_td_goal, self.y_td_goal, v_x)    
 
                 twist = Twist()
                 twist.linear.x = v_x
@@ -854,16 +877,16 @@ class goalControl():
             # -- for distance range up is fixed 
             elif self.process == 51:
                 self.Padlength = quad(self.getLength_curveFormula, self.first_delta, self.second_delta, args=(self.point_goal_start_x, self.point_goal_start_y, \
-                                                                                    self.req_move.list_x[self.path_index], self.req_move.list_y[self.path_index], \
-                                                                                        self.req_move.list_x[self.path_index+1], self.req_move.list_y[self.path_index+1]))
+                                                                                    self.req_move.list_x[self.path_index+1], self.req_move.list_y[self.path_index+1], \
+                                                                                        self.req_move.list_x[self.path_index+2], self.req_move.list_y[self.path_index+2]))
                 # print(self.Padlength)
                 self.time_up = self.Padlength[0] / self.vel_x
                 self.time_up = self.time_up*1000 #+ self.lactime
                 print("thời gian tăng gốc là: ", self.time_up)
 
                 self.r = self.getRadius_curveFormula(self.avg_delta_up, self.point_goal_start_x, self.point_goal_start_y,\
-                                        self.req_move.list_x[self.path_index], self.req_move.list_y[self.path_index], \
-                                            self.req_move.list_x[self.path_index+1], self.req_move.list_y[self.path_index+1])
+                                        self.req_move.list_x[self.path_index+1], self.req_move.list_y[self.path_index+1], \
+                                            self.req_move.list_x[self.path_index+2], self.req_move.list_y[self.path_index+2])
                 
                 self.time_run = time.time()
                 self.process = 5
@@ -887,7 +910,7 @@ class goalControl():
                     self.arr_ratio.append(self.ratio_d_now)
                     self.time_getdata_ticks = time.time()
                     self.i = self.i + 0.05
-                    print(self.d_now)
+                    # print(self.d_now)
 
                 self.d_now = self.calculate_distance(self.poseRbMa.position.x, self.poseRbMa.position.y, self.second_target_x, self.second_target_y)
                 # print(self.d_now)
@@ -922,13 +945,13 @@ class goalControl():
                     self.first_target_x = self.second_target_x
                     self.first_target_y = self.second_target_y
 
-                    self.second_target_x, self.second_target_y = self.getPoint_curveFormula(self.second_delta, self.point_goal_start_x,self.point_goal_start_y, \
-                                                                                                self.req_move.list_x[0], self.req_move.list_y[0],\
-                                                                                                    self.req_move.list_x[1], self.req_move.list_y[1])
+                    self.second_target_x, self.second_target_y = self.getPoint_curveFormula(self.second_delta, self.point_goal_start_x, self.point_goal_start_y, \
+                                                                                                self.req_move.list_x[1], self.req_move.list_y[1],\
+                                                                                                    self.req_move.list_x[2], self.req_move.list_y[2])
                     self.d_org = self.calculate_distance(self.first_target_x, self.first_target_y, self.second_target_x, self.second_target_y)
                     self.time_run = time.time()
                     
-                    self.process = 50
+                    self.process = 51
    
                 if self.second_delta >= 1:     # robot run all of tranjectory
                     self.stop()

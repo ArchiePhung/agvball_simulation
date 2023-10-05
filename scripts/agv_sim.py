@@ -8,7 +8,7 @@
 """
 
 import roslib
-roslib.load_manifest('agvtraffic_simulation')
+roslib.load_manifest('agvball_simulation')
 import rospy
 
 import time

@@ -77,6 +77,10 @@ class goalControl():
         rospy.Subscriber('/%s/request_move_fake' % self.agv_name, Move_request, self.move_callback ,queue_size = 20)                # lộ trình nhận được từ sti_control 
         self.req_move = Move_request()                                                 
         self.is_request_move = False
+
+        rospy.Subscriber("/NN_infoRespond", NN_infoRespond, self.infoAGV_callback) 
+        self.NN_infoRespond = NN_infoRespond()
+        self.is_recv_NNinfoRespond = False                                                  
         
         # -- node publish -- 
         self.rate_hz = 50
@@ -285,6 +289,10 @@ class goalControl():
         euler = euler_from_quaternion(quata)
         self.theta_rb_ht = euler[2]
 
+    def infoAGV_callback(self, data):
+        self.NN_infoRespond = data
+        self.is_recv_NNinfoRespond = True
+
     def calculate_distance(self, x1, y1, x2, y2):
         x = x2 - x1
         y = y2 - y1
@@ -307,7 +315,8 @@ class goalControl():
     #             self.path_plan.poses.append(point)
 
     #         self.pub_path_global.publish(self.path_plan)
-    #         self.is_first_pub = False   
+    #         self.is_first_pub = False
+       
     def getRadius_curveFormula(self, t, a0, b0, a1, b1, a2, b2):
         # ft Berzier Curve 
         Px = pow((1-t), 2) * a0 + 2 * (1-t) * t * a1 + t ** 2 * a2
@@ -683,7 +692,16 @@ class goalControl():
 
     #     plt.legend(loc='upper left')
     #     plt.tight_layout()
-       
+    def reset_all(self):
+        self.arr_t.clear()
+        self.arr_timeup.clear()
+        self.arr_lactime.clear()
+        self.arr_dnow.clear()
+        self.arr_dorg.clear()
+        self.arr_ratio.clear()
+        self.i = 0.05
+        self.first_delta = 0
+        self.second_delta = self.delta_up
 # -------------------------------------------------------------------------------------------------------------------------------
     
 
@@ -704,22 +722,33 @@ class goalControl():
                 else:
                     pass
                     # self.log_mess("warn","Wait data from STI_Getpose", c_k)
+                
+                if self.is_recv_NNinfoRespond == True:
+                    c_k = c_k + 1
+                else:
+                    pass
 
-                if c_k == 2:
+                if c_k == 3:
                     rospy.loginfo("Completed wakeup ('_')")
                     self.process = 2
                                                
-            elif self.process == 2:                       # kiểm tra lộ trình di chuyển 
-                if (self.poseRbMa.position.x != self.req_move.list_x[0] or self.poseRbMa.position.y != self.req_move.list_y[0]):
-                    self.point_goal_start_x = self.poseRbMa.position.x
-                    self.point_goal_start_y = self.poseRbMa.position.y
-                    self.cur_goal_x = self.req_move.list_x[self.path_index]
-                    self.cur_goal_y = self.req_move.list_y[self.path_index]
-                    self.type_run = self.move_straight
-                    self.process = 3
-                    self.is_need_turn_step1 = 1
-                else:
-                    self.process = 10
+            elif self.process == 2:                       # kiểm tra lộ trình di chuyển
+
+                if self.NN_infoRespond.mode == 1:
+                    self.process = 2
+                    # self.stop()
+
+                elif self.NN_infoRespond.mode == 2:
+                    if (self.poseRbMa.position.x != self.req_move.list_x[0] or self.poseRbMa.position.y != self.req_move.list_y[0]):
+                        self.point_goal_start_x = self.poseRbMa.position.x
+                        self.point_goal_start_y = self.poseRbMa.position.y
+                        self.cur_goal_x = self.req_move.list_x[self.path_index]
+                        self.cur_goal_y = self.req_move.list_y[self.path_index]
+                        self.type_run = self.move_straight
+                        self.process = 3
+                        self.is_need_turn_step1 = 1
+                    else:
+                        self.process = 10
 
                 # if self.path_index == 0:
                 #     self.point_goal_start_x = self.poseRbMa.position.x
@@ -736,6 +765,7 @@ class goalControl():
                 # self.is_need_turn_step1 = 1
                 # self.process = 3    
 
+            # - quyết định AGV di chuyển theo đường cong hay đường thẳng. 
             elif self.process == 10:
 
                 theta = self.getAngle_2nearbyPad(self.req_move.list_x[self.path_index], self.req_move.list_x[self.path_index],\
@@ -919,6 +949,7 @@ class goalControl():
                 # print(self.ratio_d_now)
                 kp = 80
                 self.lactime = kp*self.err_ratio_d
+                # self.lactime = 65
                 self.time_up = self.time_up + self.lactime
                 # print("thời gian tăng là: ", self.time_up)
 
@@ -937,6 +968,7 @@ class goalControl():
                 # print(t)
                 
                 if t > self.time_up:    # update parameter
+                    print("IM here -------------------------------------------------------------")
                     self.stop()
                     self.first_delta = self.second_delta
                     self.avg_delta_up = self.first_delta #+ self.delta_up/2
@@ -967,13 +999,18 @@ class goalControl():
                     self.subplot[1,1].plot(self.arr_t, self.arr_ratio, color='blue', label='ratio')
                     self.subplot[1,1].legend(loc='upper left')
 
-                    plt.show()
-                    self.arr_dnow.clear()
-                    self.arr_t.clear()
-                    self.arr_timeup.clear()
-                    self.arr_lactime.clear()
-                    self.arr_dorg.clear()
-                    self.arr_ratio.clear()
+                    # plt.show()
+                    self.reset_all()
+                    # self.arr_dnow.clear()
+                    # self.arr_t.clear()
+                    # self.arr_timeup.clear()
+                    # self.arr_lactime.clear()
+                    # self.arr_dorg.clear()
+                    # self.arr_ratio.clear()
+
+                if self.NN_infoRespond.mode == 1:       
+                    self.process = 2
+                    self.reset_all()
 
             # AGV đã hoàn thành lộ trình cần di chuyển 
             elif self.process == 50:    
@@ -981,6 +1018,7 @@ class goalControl():
                 self.path_index = 0
                 # print(self.agv_name,"đã hoàn thành !")
 
+            self.ballstate.process = self.process
             self.pub_status.publish(self.ballstate)
         self.rate.sleep()
 

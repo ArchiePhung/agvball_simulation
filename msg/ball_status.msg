@@ -7,3 +7,4 @@ float32 d_ratio
 float32 lactime
 float64 v_linear
 float64 v_angular
+int16 process

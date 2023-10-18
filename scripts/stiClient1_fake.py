@@ -69,11 +69,14 @@ class Fake_stiClient1():
                     # self.agv1_list_pub_y = [2,2,0,0,0]
 
                     # đi cong tại ngã tư 
-                    self.agv1_list_pub_x = [1,1,6]
-                    self.agv1_list_pub_y = [1,6,6]
+                    # self.agv1_list_pub_x = [2,2,6]
+                    # self.agv1_list_pub_y = [2,6,6]
 
-                    # self.agv1_list_pub_x = [0,0,5]
-                    # self.agv1_list_pub_y = [0,5,5]
+                    # self.agv1_list_pub_x = [0,-1,5]
+                    # self.agv1_list_pub_y = [0,4,5]
+
+                    self.agv1_list_pub_x = [0,0,5]
+                    self.agv1_list_pub_y = [0,5,5]
 
                     # gửi lộ trình đường cong
                     # self.agv1_list_pub_x = [-1,5]
